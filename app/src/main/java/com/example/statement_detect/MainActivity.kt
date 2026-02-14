@@ -5,12 +5,14 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.text.Layout
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.DrawableRes
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -18,14 +20,30 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.snapping.SnapPosition
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,6 +55,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
@@ -46,9 +67,21 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.statement_detect.ui.theme.Statement_DetectTheme
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.ModifierLocalBeyondBoundsLayout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.modifier.modifierLocalConsumer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.DialogProperties
+import com.example.statement_detect.ui.theme.DigitalMono
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,6 +91,7 @@ class MainActivity : ComponentActivity() {
             Statement_DetectTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     // ✅ 修改：不再传递 Activity 参数
+                    ClockGUI(modifier = Modifier.padding(innerPadding))
                     RequestCameraPermission(modifier = Modifier.padding(innerPadding))
                 }
             }
@@ -65,7 +99,271 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ✨ 新增：一个专门用来处理权限的 Wrapper 组件
+@Composable
+fun ClockGUI(modifier: Modifier = Modifier) {
+    var paused: Boolean by remember { mutableStateOf(true) }
+    var work_h_time: Int by remember { mutableStateOf(0) }
+    var work_m_time: Int by remember { mutableStateOf(0) }
+    var work_s_time: Int by remember { mutableStateOf(0) }
+    var relax_h_time: Int by remember { mutableStateOf(0) }
+    var relax_m_time: Int by remember { mutableStateOf(0) }
+    var relax_s_time: Int by remember { mutableStateOf(0) }
+    var round: Int by remember { mutableStateOf(0) }
+    var roundsHeight by remember { mutableStateOf(0) }
+    var playButtonHeight by remember { mutableStateOf(0) }
+
+    Box(modifier = Modifier.fillMaxSize()) {//最外层框架,罩住整个画面
+        Box(
+            modifier = Modifier
+                .size(300.dp)
+                .background(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+
+                           Color(0xFF000000),
+                            Color(0xFF000000),
+                            Color(0xFF022150),
+                        )
+                    ),
+                    shape = CircleShape
+                )
+                .border(
+                    width = 6.dp,
+                    color = Color(0xFF6D7C8A),
+                    shape = CircleShape
+                )
+                .align(Alignment.Center), contentAlignment = Alignment.Center
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth(0.5f)
+                        .onGloballyPositioned { coordinates ->
+                            roundsHeight = coordinates.size.height
+                        },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "Rounds",
+                        color = Color(0xFFFFFFFF),
+                    )
+                    Text(
+                        text = "%01d".format(round),
+                        fontFamily = FontFamily(Font(R.font.digital7_mono)),
+                        fontSize = 30.sp,
+                        color = Color(0xFF57EC5E)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(0.5f),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        IconButton(
+                            onClick = {
+                                round++
+                                round %= 10
+                            },
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(Color.Blue)
+                                .fillMaxHeight()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowUp,
+                                contentDescription = "向上",
+                                tint = Color.White,
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                round--
+                                round = (round + 10) % 10
+                            },
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(Color.Blue)
+                                .fillMaxHeight()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "向上",
+                                tint = Color.White,
+                            )
+                        }
+                    }
+                }
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(0.5f),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Work Time",
+                            color = Color(0xFFFFFFFF),
+                        )
+                        Text(
+                            text = "%02d:%02d:%02d".format(work_h_time, work_m_time, work_s_time),
+                            fontFamily = FontFamily(Font(R.font.digital7_mono)),
+                            fontSize = 30.sp,
+                            color = Color(0xFF57EC5E)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(0.5f),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    work_s_time++
+                                    work_m_time += work_s_time / 60
+                                    work_s_time %= 60
+                                    work_h_time += work_m_time / 60
+                                    work_m_time %= 60
+                                    work_h_time %= 24
+                                },
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Blue)
+                                    .fillMaxHeight()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "向上",
+                                    tint = Color.White,
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    work_s_time--
+                                    work_m_time += (work_s_time - 59) / 60
+                                    work_s_time = (work_s_time + 60) % 60
+                                    work_h_time += (work_m_time - 59) / 60
+                                    work_m_time = (work_m_time + 60) % 60
+                                    work_h_time = (work_h_time + 24) % 24
+                                },
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Blue)
+                                    .fillMaxHeight()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "向上",
+                                    tint = Color.White,
+                                )
+                            }
+                        }
+                    }
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "Relax Time",
+                            color = Color(0xFFFFFFFF),
+                        )
+                        Text(
+                            text = "%02d:%02d:%02d".format(relax_h_time, relax_m_time, relax_s_time),
+                            fontFamily = FontFamily(Font(R.font.digital7_mono)),
+                            fontSize = 30.sp,
+                            color = Color(0xFF57EC5E)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(0.5f),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    relax_s_time++
+                                    relax_m_time += relax_s_time / 60
+                                    relax_s_time %= 60
+                                    relax_h_time += relax_m_time / 60
+                                    relax_m_time %= 60
+                                    relax_h_time %= 24
+                                },
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Blue)
+                                    .fillMaxHeight()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowUp,
+                                    contentDescription = "向上",
+                                    tint = Color.White,
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    relax_s_time--
+                                    relax_m_time += (relax_s_time - 59) / 60
+                                    relax_s_time = (relax_s_time + 60) % 60
+                                    relax_h_time += (relax_m_time - 59) / 60
+                                    relax_m_time = (relax_m_time + 60) % 60
+                                    relax_h_time = (relax_h_time + 24) % 24
+                                },
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Blue)
+                                    .fillMaxHeight()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                    contentDescription = "向上",
+                                    tint = Color.White,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 添加底部间距以实现垂直居中
+                Spacer(modifier = Modifier.height(with(LocalDensity.current) {
+                    (roundsHeight - playButtonHeight).toDp()
+                }))
+
+                IconButton(
+                    onClick = {
+                        paused = !paused
+                    },
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(Color.Blue)
+                        .onGloballyPositioned { coordinates ->
+                            playButtonHeight = coordinates.size.height
+                        }
+                ) {
+                    var Icon_to_show: ImageVector
+                    if (paused) {
+                        Icon_to_show = Icons.Default.PlayArrow
+                    } else {
+                        Icon_to_show = ImageVector.vectorResource(id = R.drawable.baseline_pause_24)
+                    }
+                    Icon(
+                        imageVector = Icon_to_show,
+                        contentDescription = "向上",
+                        tint = Color.White,
+                    )
+                }
+            }
+        }
+    }
+}
+// 新增：一个专门用来处理权限的 Wrapper 组件
 @Composable
 fun RequestCameraPermission(modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -151,7 +449,7 @@ fun StartCamera(modifier: Modifier) {
             var imgToShow: Bitmap? by remember {mutableStateOf(null)}
             var isAtWork: Boolean by remember {mutableStateOf(false)}
 
-            Text(" APP")
+            /*Text(" APP")
             Button(onClick = {//测试拍照用按钮
                 captureUserPhoto(
                     imageCapture=imageCapture,
@@ -160,7 +458,7 @@ fun StartCamera(modifier: Modifier) {
                 }
             }) {
                 Text("Photo(Test)")
-            }
+            }*/
             if(imgToShow!=null){
 
                 ShowReminderWithPhoto(image = imgToShow!!,){
@@ -174,15 +472,21 @@ fun StartCamera(modifier: Modifier) {
         AndroidView(
             factory = { ctx ->
                 PreviewView(ctx).also { view ->
-                    // 当 PreviewView 创建时，将其赋值给 previewView
+                    // 关键：使用 FILL_CENTER 裁剪并填满视图
+                    view.scaleType = PreviewView.ScaleType.FILL_CENTER
+                    // 可选：设置背景透明，让裁剪区域外的部分显示下层内容
+                    view.background = null
+                    // 使用 COMPATIBLE 模式提高兼容性
+                    view.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                     previewView.value = view
-                    // 如果相机已经初始化，立即设置 surfaceProvider
                     preview.setSurfaceProvider(view.surfaceProvider)
-                    }
-                },
-            modifier = Modifier.align(alignment = Alignment.TopEnd)
-                            .padding(10.dp)// 根据需要调整尺寸
-                .size(180.dp,240.dp)
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(10.dp)
+                // 使用 requiredSize 强制指定大小，避免父布局约束干扰
+                .requiredSize(180.dp, 240.dp)  // 根据需要调整
         )
     }
 }
@@ -258,6 +562,7 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
 fun GreetingPreview() {
     Statement_DetectTheme {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+            ClockGUI(modifier = Modifier.padding(innerPadding))
             StartCamera(
                 modifier = Modifier.padding(innerPadding))
         }
