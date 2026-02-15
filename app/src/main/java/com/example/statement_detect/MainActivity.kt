@@ -5,30 +5,32 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Bundle
-import android.text.Layout
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.annotation.DrawableRes
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.snapping.SnapPosition
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,7 +38,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -44,44 +52,42 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.example.statement_detect.ui.theme.Statement_DetectTheme
-import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.ui.layout.ModifierLocalBeyondBoundsLayout
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.modifier.modifierLocalConsumer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.statement_detect.ui.theme.DigitalMono
+import com.example.statement_detect.ui.theme.Statement_DetectTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -90,7 +96,6 @@ class MainActivity : ComponentActivity() {
         setContent {
             Statement_DetectTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    // ✅ 修改：不再传递 Activity 参数
                     ClockGUI(modifier = Modifier.padding(innerPadding))
                     RequestCameraPermission(modifier = Modifier.padding(innerPadding))
                 }
@@ -99,29 +104,248 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+fun handleTime(totalSeconds: Int, isAdd: Boolean, isMinus: Boolean): Int {
+    val dayInSeconds = 86400
+    var newTotalSeconds = totalSeconds
+    if (isAdd) {
+        newTotalSeconds++
+    } else if (isMinus) {
+        newTotalSeconds--
+    }
+    return (newTotalSeconds + dayInSeconds) % dayInSeconds
+}
+
+
+enum class TimerStatus {
+    PAUSED,      // 暂停
+    WORKING,     // 工作倒计时
+    RELAXING     // 休息倒计时
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun TimePickerDialog(
+    modifier: Modifier = Modifier,
+    totalSeconds: Int,
+    onDismiss: (Int) -> Unit
+) {
+    val bufferCount = 3 // 顶部/底部的空白项数量
+
+    // 构建带空白项的列表
+    val hourItems = remember { List(bufferCount) { null } + (0..23).toList() + List(bufferCount) { null } }
+    val minuteItems = remember { List(bufferCount) { null } + (0..59).toList() + List(bufferCount) { null } }
+    val secondItems = remember { List(bufferCount) { null } + (0..59).toList() + List(bufferCount) { null } }
+
+    // 目标数值在列表中的实际索引（加上 bufferCount）
+    val targetHourIndex = bufferCount + totalSeconds / 3600
+    val targetMinuteIndex = bufferCount + (totalSeconds / 60) % 60
+    val targetSecondIndex = bufferCount + totalSeconds % 60
+
+    // 滚筒状态，初始索引设为目标索引
+    val hourState = rememberLazyListState(initialFirstVisibleItemIndex = targetHourIndex)
+    val minuteState = rememberLazyListState(initialFirstVisibleItemIndex = targetMinuteIndex)
+    val secondState = rememberLazyListState(initialFirstVisibleItemIndex = targetSecondIndex)
+
+    val density = LocalDensity.current
+    val columnHeight = 200.dp      // 与 WheelPickerColumn 中一致
+    val itemHeight = 48.dp
+    val targetOffsetPx = with(density) { ((columnHeight - itemHeight) / 2).roundToPx() }
+
+    // 组合后立即滚动到目标索引并使其居中
+    LaunchedEffect(Unit) {
+        launch { hourState.scrollToItem(targetHourIndex, targetOffsetPx) }
+        launch { minuteState.scrollToItem(targetMinuteIndex, targetOffsetPx) }
+        launch { secondState.scrollToItem(targetSecondIndex, targetOffsetPx) }
+    }
+
+    Dialog(
+        onDismissRequest = {
+            // 计算每个滚筒当前居中项的索引
+            val hourCenterIndex = getCenterItemIndex(hourState, bufferCount, 0..23)
+            val minuteCenterIndex = getCenterItemIndex(minuteState, bufferCount, 0..59)
+            val secondCenterIndex = getCenterItemIndex(secondState, bufferCount, 0..59)
+            onDismiss(hourCenterIndex * 3600 + minuteCenterIndex * 60 + secondCenterIndex)
+        },
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+        )
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White,
+            modifier = Modifier.size(240.dp).clip(RoundedCornerShape(10.dp))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                WheelPickerColumn(
+                    items = hourItems,
+                    state = hourState,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    ":",
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                    color = Color.Black,
+                    fontSize = 24.sp,
+                    fontFamily = FontFamily(Font(R.font.digital7_mono))
+                )
+                WheelPickerColumn(
+                    items = minuteItems,
+                    state = minuteState,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    ":",
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                    color = Color.Black,
+                    fontSize = 24.sp,
+                    fontFamily = FontFamily(Font(R.font.digital7_mono))
+                )
+                WheelPickerColumn(
+                    items = secondItems,
+                    state = secondState,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+/** 获取当前滚筒中距离可视区域中心最近的数值项索引（原始值，已减去 bufferCount） */
+private fun getCenterItemIndex(
+    state: LazyListState,
+    bufferCount: Int,
+    validRange: IntRange
+): Int {
+    val layoutInfo = state.layoutInfo
+    val visibleItems = layoutInfo.visibleItemsInfo
+    if (visibleItems.isEmpty()) return validRange.first
+
+    val viewportCenter = layoutInfo.viewportEndOffset / 2f
+    // 找到最接近视口中心的项
+    val closestItem = visibleItems.minByOrNull { item ->
+        val itemCenter = item.offset + item.size / 2f
+        kotlin.math.abs(itemCenter - viewportCenter)
+    } ?: return validRange.first
+
+    val rawIndex = closestItem.index
+    // 减去 bufferCount，并限制在有效范围内
+    return (rawIndex - bufferCount).coerceIn(validRange.first, validRange.last)
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun WheelPickerColumn(
+    items: List<Int?>,        // 允许 null 表示空白项
+    state: LazyListState,
+    modifier: Modifier = Modifier
+) {
+    val itemHeight = 48.dp
+    val columnHeight = 200.dp
+
+    LazyColumn(
+        state = state,
+        flingBehavior = rememberSnapFlingBehavior(state, SnapPosition.Center), // 居中吸附
+        modifier = modifier
+            .height(columnHeight)
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.LightGray.copy(alpha = 0.2f))
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        items(items) { value ->
+            Box(
+                modifier = Modifier
+                    .height(itemHeight)
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (value != null) {
+                    Text(
+                        text = "%02d".format(value),
+                        fontFamily = FontFamily(Font(R.font.digital7_mono)),
+                        color = Color.Black,
+                        fontSize = 20.sp
+                    )
+                } else {
+                    // 空白项：不显示数字，保持占位
+                    Spacer(modifier = Modifier.fillMaxSize())
+                }
+            }
+        }
+    }
+}
 @Composable
 fun ClockGUI(modifier: Modifier = Modifier) {
-    var paused: Boolean by remember { mutableStateOf(true) }
-    var work_h_time: Int by remember { mutableStateOf(0) }
-    var work_m_time: Int by remember { mutableStateOf(0) }
-    var work_s_time: Int by remember { mutableStateOf(0) }
-    var relax_h_time: Int by remember { mutableStateOf(0) }
-    var relax_m_time: Int by remember { mutableStateOf(0) }
-    var relax_s_time: Int by remember { mutableStateOf(0) }
+    var scheduledWorkTimeInSeconds: Int by remember { mutableStateOf(0) }
+    var scheduledRelaxTimeInSeconds: Int by remember { mutableStateOf(0) }
+    var currentWorkTimeInSeconds: Int by remember { mutableStateOf(0) }
+    var currentRelaxTimeInSeconds: Int by remember { mutableStateOf(0) }
     var round: Int by remember { mutableStateOf(0) }
     var roundsHeight by remember { mutableStateOf(0) }
     var playButtonHeight by remember { mutableStateOf(0) }
+    var timerStatus: TimerStatus by remember { mutableStateOf(TimerStatus.PAUSED) }
+    var lastRunStatus: TimerStatus by remember { mutableStateOf(TimerStatus.WORKING) }
 
-    Box(modifier = Modifier.fillMaxSize()) {//最外层框架,罩住整个画面
+    DisposableEffect(Unit) {
+        val handler = Handler(Looper.getMainLooper())
+        val countDownRunnable = object : Runnable {
+            override fun run() {
+                when (timerStatus) {
+                    TimerStatus.WORKING -> {
+                        if (currentWorkTimeInSeconds > 0) {
+                            currentWorkTimeInSeconds--
+                        } else {
+                            timerStatus = TimerStatus.RELAXING
+                            currentWorkTimeInSeconds = scheduledWorkTimeInSeconds
+                        }
+                    }
+
+                    TimerStatus.RELAXING -> {
+                        if (currentRelaxTimeInSeconds > 0) {
+                            currentRelaxTimeInSeconds--
+                        } else {
+                            if (round > 0) {
+                                round--
+                                timerStatus = TimerStatus.WORKING
+                            } else {
+                                timerStatus = TimerStatus.PAUSED
+                            }
+                            currentRelaxTimeInSeconds = scheduledRelaxTimeInSeconds
+                        }
+                    }
+
+                    TimerStatus.PAUSED -> {
+                        // Do nothing
+                    }
+                }
+                handler.postDelayed(this, 1000)
+            }
+        }
+
+        handler.post(countDownRunnable)
+
+        onDispose {
+            handler.removeCallbacksAndMessages(null)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier
                 .size(300.dp)
                 .background(
                     brush = Brush.radialGradient(
                         colors = listOf(
-
-                           Color(0xFF000000),
-                            Color(0xFF000000),
+                            Color(0xFF010B18),
+                            Color(0xFF01122C),
                             Color(0xFF022150),
                         )
                     ),
@@ -129,7 +353,7 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                 )
                 .border(
                     width = 6.dp,
-                    color = Color(0xFF6D7C8A),
+                    color = Color(0xFF3A4249),
                     shape = CircleShape
                 )
                 .align(Alignment.Center), contentAlignment = Alignment.Center
@@ -150,13 +374,14 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                 ) {
                     Text(
                         text = "Rounds",
-                        color = Color(0xFFFFFFFF),
+                        color = Color.White,
                     )
+                    val roundColor = if (timerStatus != TimerStatus.PAUSED) Color(0xFF83D086) else Color.White
                     Text(
                         text = "%01d".format(round),
                         fontFamily = FontFamily(Font(R.font.digital7_mono)),
                         fontSize = 30.sp,
-                        color = Color(0xFF57EC5E)
+                        color = roundColor
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(0.5f),
@@ -164,8 +389,9 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                     ) {
                         IconButton(
                             onClick = {
-                                round++
-                                round %= 10
+                                if (timerStatus == TimerStatus.PAUSED) {
+                                    round = (round + 1) % 10
+                                }
                             },
                             modifier = Modifier
                                 .size(24.dp)
@@ -175,15 +401,16 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                         ) {
                             Icon(
                                 imageVector = Icons.Default.KeyboardArrowUp,
-                                contentDescription = "向上",
+                                contentDescription = "Round Up",
                                 tint = Color.White,
                             )
                         }
 
                         IconButton(
                             onClick = {
-                                round--
-                                round = (round + 10) % 10
+                                if (timerStatus == TimerStatus.PAUSED) {
+                                    round = (round + 9) % 10
+                                }
                             },
                             modifier = Modifier
                                 .size(24.dp)
@@ -193,7 +420,7 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                         ) {
                             Icon(
                                 imageVector = Icons.Default.KeyboardArrowDown,
-                                contentDescription = "向上",
+                                contentDescription = "Round Down",
                                 tint = Color.White,
                             )
                         }
@@ -207,13 +434,21 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                     ) {
                         Text(
                             text = "Work Time",
-                            color = Color(0xFFFFFFFF),
+                            color = Color.White,
                         )
+                        val workH = currentWorkTimeInSeconds / 3600
+                        val workM = (currentWorkTimeInSeconds % 3600) / 60
+                        val workS = currentWorkTimeInSeconds % 60
+                        val workTimeColor = if (timerStatus == TimerStatus.WORKING) Color(0xFF83D086) else Color.White
+                        var showWorkTimeSelector:Boolean by remember { mutableStateOf(false) }
                         Text(
-                            text = "%02d:%02d:%02d".format(work_h_time, work_m_time, work_s_time),
+                            text = "%02d:%02d:%02d".format(workH, workM, workS),
                             fontFamily = FontFamily(Font(R.font.digital7_mono)),
                             fontSize = 30.sp,
-                            color = Color(0xFF57EC5E)
+                            color = workTimeColor,
+                            modifier = Modifier.clickable{
+                                showWorkTimeSelector=true
+                            }
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(0.5f),
@@ -221,12 +456,10 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                         ) {
                             IconButton(
                                 onClick = {
-                                    work_s_time++
-                                    work_m_time += work_s_time / 60
-                                    work_s_time %= 60
-                                    work_h_time += work_m_time / 60
-                                    work_m_time %= 60
-                                    work_h_time %= 24
+                                    if (timerStatus == TimerStatus.PAUSED) {
+                                        scheduledWorkTimeInSeconds = handleTime(scheduledWorkTimeInSeconds, isAdd = true, isMinus = false)
+                                        currentWorkTimeInSeconds = scheduledWorkTimeInSeconds
+                                    }
                                 },
                                 modifier = Modifier
                                     .size(24.dp)
@@ -236,19 +469,17 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.KeyboardArrowUp,
-                                    contentDescription = "向上",
+                                    contentDescription = "Work Time Up",
                                     tint = Color.White,
                                 )
                             }
 
                             IconButton(
                                 onClick = {
-                                    work_s_time--
-                                    work_m_time += (work_s_time - 59) / 60
-                                    work_s_time = (work_s_time + 60) % 60
-                                    work_h_time += (work_m_time - 59) / 60
-                                    work_m_time = (work_m_time + 60) % 60
-                                    work_h_time = (work_h_time + 24) % 24
+                                    if (timerStatus == TimerStatus.PAUSED) {
+                                        scheduledWorkTimeInSeconds = handleTime(scheduledWorkTimeInSeconds, isAdd = false, isMinus = true)
+                                        currentWorkTimeInSeconds = scheduledWorkTimeInSeconds
+                                    }
                                 },
                                 modifier = Modifier
                                     .size(24.dp)
@@ -258,9 +489,16 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "向上",
+                                    contentDescription = "Work Time Down",
                                     tint = Color.White,
                                 )
+                            }
+                        }
+                        if(showWorkTimeSelector==true){
+                            TimePickerDialog(modifier = Modifier, totalSeconds = scheduledWorkTimeInSeconds) {
+                                res->
+                                scheduledWorkTimeInSeconds=res
+                                showWorkTimeSelector=false
                             }
                         }
                     }
@@ -271,13 +509,17 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                     ) {
                         Text(
                             text = "Relax Time",
-                            color = Color(0xFFFFFFFF),
+                            color = Color.White,
                         )
+                        val relaxH = currentRelaxTimeInSeconds / 3600
+                        val relaxM = (currentRelaxTimeInSeconds % 3600) / 60
+                        val relaxS = currentRelaxTimeInSeconds % 60
+                        val relaxTimeColor = if (timerStatus == TimerStatus.RELAXING) Color(0xFF83D086) else Color.White
                         Text(
-                            text = "%02d:%02d:%02d".format(relax_h_time, relax_m_time, relax_s_time),
+                            text = "%02d:%02d:%02d".format(relaxH, relaxM, relaxS),
                             fontFamily = FontFamily(Font(R.font.digital7_mono)),
                             fontSize = 30.sp,
-                            color = Color(0xFF57EC5E)
+                            color = relaxTimeColor
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(0.5f),
@@ -285,12 +527,10 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                         ) {
                             IconButton(
                                 onClick = {
-                                    relax_s_time++
-                                    relax_m_time += relax_s_time / 60
-                                    relax_s_time %= 60
-                                    relax_h_time += relax_m_time / 60
-                                    relax_m_time %= 60
-                                    relax_h_time %= 24
+                                    if (timerStatus == TimerStatus.PAUSED) {
+                                        scheduledRelaxTimeInSeconds = handleTime(scheduledRelaxTimeInSeconds, isAdd = true, isMinus = false)
+                                        currentRelaxTimeInSeconds = scheduledRelaxTimeInSeconds
+                                    }
                                 },
                                 modifier = Modifier
                                     .size(24.dp)
@@ -300,19 +540,17 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.KeyboardArrowUp,
-                                    contentDescription = "向上",
+                                    contentDescription = "Relax Time Up",
                                     tint = Color.White,
                                 )
                             }
 
                             IconButton(
                                 onClick = {
-                                    relax_s_time--
-                                    relax_m_time += (relax_s_time - 59) / 60
-                                    relax_s_time = (relax_s_time + 60) % 60
-                                    relax_h_time += (relax_m_time - 59) / 60
-                                    relax_m_time = (relax_m_time + 60) % 60
-                                    relax_h_time = (relax_h_time + 24) % 24
+                                    if (timerStatus == TimerStatus.PAUSED) {
+                                        scheduledRelaxTimeInSeconds = handleTime(scheduledRelaxTimeInSeconds, isAdd = false, isMinus = true)
+                                        currentRelaxTimeInSeconds = scheduledRelaxTimeInSeconds
+                                    }
                                 },
                                 modifier = Modifier
                                     .size(24.dp)
@@ -322,7 +560,7 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.KeyboardArrowDown,
-                                    contentDescription = "向上",
+                                    contentDescription = "Relax Time Down",
                                     tint = Color.White,
                                 )
                             }
@@ -330,14 +568,18 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                     }
                 }
 
-                // 添加底部间距以实现垂直居中
                 Spacer(modifier = Modifier.height(with(LocalDensity.current) {
                     (roundsHeight - playButtonHeight).toDp()
                 }))
 
                 IconButton(
                     onClick = {
-                        paused = !paused
+                        if (timerStatus == TimerStatus.PAUSED) {
+                            timerStatus = lastRunStatus
+                        } else {
+                            lastRunStatus = timerStatus
+                            timerStatus = TimerStatus.PAUSED
+                        }
                     },
                     modifier = Modifier
                         .size(24.dp)
@@ -347,15 +589,14 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                             playButtonHeight = coordinates.size.height
                         }
                 ) {
-                    var Icon_to_show: ImageVector
-                    if (paused) {
-                        Icon_to_show = Icons.Default.PlayArrow
+                    val iconToShow = if (timerStatus == TimerStatus.PAUSED) {
+                        Icons.Default.PlayArrow
                     } else {
-                        Icon_to_show = ImageVector.vectorResource(id = R.drawable.baseline_pause_24)
+                        ImageVector.vectorResource(id = R.drawable.baseline_pause_24)
                     }
                     Icon(
-                        imageVector = Icon_to_show,
-                        contentDescription = "向上",
+                        imageVector = iconToShow,
+                        contentDescription = if (timerStatus == TimerStatus.PAUSED) "Play" else "Pause",
                         tint = Color.White,
                     )
                 }
@@ -363,12 +604,10 @@ fun ClockGUI(modifier: Modifier = Modifier) {
         }
     }
 }
-// 新增：一个专门用来处理权限的 Wrapper 组件
+
 @Composable
 fun RequestCameraPermission(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-
-    // 检查当前是否已经有权限
     var hasPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(
@@ -378,7 +617,6 @@ fun RequestCameraPermission(modifier: Modifier = Modifier) {
         )
     }
 
-    // 创建权限请求启动器
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
         onResult = { isGranted ->
@@ -393,10 +631,8 @@ fun RequestCameraPermission(modifier: Modifier = Modifier) {
     }
 
     if (hasPermission) {
-        // ✅ 只有有权限了，才显示相机界面
         StartCamera(modifier = modifier)
     } else {
-        // 没有权限时显示的提示
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("需要相机权限才能拍照")
             Button(onClick = { launcher.launch(Manifest.permission.CAMERA) }) {
@@ -405,97 +641,78 @@ fun RequestCameraPermission(modifier: Modifier = Modifier) {
         }
     }
 }
+
 @Composable
 fun StartCamera(modifier: Modifier) {
-    val context= LocalContext.current//当前上下文信息
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    var imageCapture: ImageCapture? by remember{ mutableStateOf(null) }
+    var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
     val preview = remember { androidx.camera.core.Preview.Builder().build() }
-    val previewView = remember { mutableStateOf<PreviewView?>(null) }
+
     LaunchedEffect(Unit) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
-        val cameraProvider=cameraProviderFuture.get()
+        val cameraProvider = cameraProviderFuture.get()
         val imageCaptureUseCase = ImageCapture.Builder()
-            // 设置捕获模式为最小延迟（拍照速度优先）
-            // 另一个选项是 CAPTURE_MODE_MAXIMIZE_QUALITY（质量优先）
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            // 设置闪光灯模式为自动
             .setFlashMode(ImageCapture.FLASH_MODE_OFF)
-            .build() // 构建 ImageCapture 对象
-        imageCapture=imageCaptureUseCase
-        val cameraSelector= CameraSelector.DEFAULT_FRONT_CAMERA//选择前置摄像头
+            .build()
+        imageCapture = imageCaptureUseCase
+        val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
         try {
-            // 先解绑所有之前绑定的用例，避免冲突
             cameraProvider.unbindAll()
-
-            // 将摄像头绑定到生命周期，并绑定预览和图像捕获两个用例
             cameraProvider.bindToLifecycle(
-                lifecycleOwner,          // 生命周期所有者
-                cameraSelector,          // 摄像头选择器（前置/后置）
-                imageCaptureUseCase,      // 图像捕获用例
+                lifecycleOwner,
+                cameraSelector,
+                imageCaptureUseCase,
                 preview
             )
         } catch (exc: Exception) {
-            // 捕获异常并记录日志
             Log.e("CameraCapture", "摄像头绑定失败", exc)
         }
     }
-    Box(){
+    Box {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-        ){
-            var imgToShow: Bitmap? by remember {mutableStateOf(null)}
-            var isAtWork: Boolean by remember {mutableStateOf(false)}
+        ) {
+            var imgToShow: Bitmap? by remember { mutableStateOf(null) }
+            var isAtWork: Boolean by remember { mutableStateOf(false) }
 
-            /*Text(" APP")
-            Button(onClick = {//测试拍照用按钮
-                captureUserPhoto(
-                    imageCapture=imageCapture,
-                    context=context,){
-                        bitmap -> imgToShow=bitmap
+            if (imgToShow != null) {
+                ShowReminderWithPhoto(
+                    image = imgToShow!!,
+                ) {
+                        res ->
+                    isAtWork = res
+                    imgToShow = null
                 }
-            }) {
-                Text("Photo(Test)")
-            }*/
-            if(imgToShow!=null){
-
-                ShowReminderWithPhoto(image = imgToShow!!,){
-                        res -> isAtWork=res
-                    imgToShow=null
-                }
-
             }
         }
 
         AndroidView(
             factory = { ctx ->
-                PreviewView(ctx).also { view ->
-                    // 关键：使用 FILL_CENTER 裁剪并填满视图
-                    view.scaleType = PreviewView.ScaleType.FILL_CENTER
-                    // 可选：设置背景透明，让裁剪区域外的部分显示下层内容
-                    view.background = null
-                    // 使用 COMPATIBLE 模式提高兼容性
-                    view.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                    previewView.value = view
-                    preview.setSurfaceProvider(view.surfaceProvider)
+                PreviewView(ctx).apply {
+                    scaleType = PreviewView.ScaleType.FILL_CENTER
+                    background = null
+                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                    preview.setSurfaceProvider(surfaceProvider)
                 }
             },
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(10.dp)
-                // 使用 requiredSize 强制指定大小，避免父布局约束干扰
-                .requiredSize(180.dp, 240.dp)  // 根据需要调整
+                .requiredSize(180.dp, 240.dp)
         )
     }
 }
 
-fun captureUserPhoto(imageCapture: ImageCapture?,
-                     context: Context,
-                     onPhotoCaptured: (Bitmap) -> Unit
-){
-    val imageCaptureInstance= imageCapture?:return
+fun captureUserPhoto(
+    imageCapture: ImageCapture?,
+    context: Context,
+    onPhotoCaptured: (Bitmap) -> Unit
+) {
+    val imageCaptureInstance = imageCapture ?: return
     imageCaptureInstance.takePicture(
         ContextCompat.getMainExecutor(context),
         object : ImageCapture.OnImageCapturedCallback() {
@@ -504,40 +721,34 @@ fun captureUserPhoto(imageCapture: ImageCapture?,
             }
 
             override fun onCaptureSuccess(image: ImageProxy) {
-                // ✅ 步骤1完成：拍下当前图像
                 val bitmap = image.toBitmap()
-
                 Log.d("Camera", "成功拍摄用户照片: ${bitmap.width}x${bitmap.height}")
-
-                // TODO: 步骤2 - 图像处理
                 onPhotoCaptured(bitmap)
-                // 必须关闭 ImageProxy
                 image.close()
             }
         }
     )
 }
-@Composable
-fun ShowReminderWithPhoto(image: Bitmap,onDismiss:(Boolean)->Unit){
 
-    Dialog(onDismissRequest = {
-        onDismiss(false)//这里可能存在问题
-        },
+@Composable
+fun ShowReminderWithPhoto(image: Bitmap, onDismiss: (Boolean) -> Unit) {
+    Dialog(
+        onDismissRequest = { onDismiss(false) },
         properties = DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = false,
         )
     ) {
         Column(
-            modifier= Modifier.padding(10.dp),
-            horizontalAlignment= Alignment.CenterHorizontally
+            modifier = Modifier.padding(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             val imageBitmap: ImageBitmap = image.asImageBitmap()
-            Image(bitmap = imageBitmap , contentDescription = "captured")
+            Image(bitmap = imageBitmap, contentDescription = "captured")
             Row(
                 modifier = Modifier.padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically
-            ){
+            ) {
                 Button(onClick = { onDismiss(true) }) {
                     Text("在工作")
                 }
@@ -549,22 +760,13 @@ fun ShowReminderWithPhoto(image: Bitmap,onDismiss:(Boolean)->Unit){
     }
 }
 
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
-
 @Preview(showBackground = true)
 @Composable
 fun GreetingPreview() {
     Statement_DetectTheme {
         Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
             ClockGUI(modifier = Modifier.padding(innerPadding))
-            StartCamera(
-                modifier = Modifier.padding(innerPadding))
+            StartCamera(modifier = Modifier.padding(innerPadding))
         }
     }
 }
