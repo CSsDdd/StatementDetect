@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.media.AudioAttributes
+import android.media.SoundPool
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -19,6 +21,7 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.Transition
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -38,7 +41,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -52,7 +54,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -85,9 +86,10 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.example.statement_detect.ui.theme.DigitalMono
 import com.example.statement_detect.ui.theme.Statement_DetectTheme
 import kotlinx.coroutines.launch
+import kotlin.random.Random
+
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -95,9 +97,12 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             Statement_DetectTheme {
+                var NeedPhoto by remember { mutableStateOf(false) }
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    ClockGUI(modifier = Modifier.padding(innerPadding))
-                    RequestCameraPermission(modifier = Modifier.padding(innerPadding))
+                    ClockGUI(modifier = Modifier.padding(innerPadding)){
+                        NeedPhoto=true
+                    }
+                    RequestCameraPermission(modifier = Modifier.padding(innerPadding),shouldTakePhoto = NeedPhoto)
                 }
             }
         }
@@ -137,9 +142,9 @@ fun TimePickerDialog(
     val secondItems = remember { List(bufferCount) { null } + (0..59).toList() + List(bufferCount) { null } }
 
     // 目标数值在列表中的实际索引（加上 bufferCount）
-    val targetHourIndex = bufferCount + totalSeconds / 3600
-    val targetMinuteIndex = bufferCount + (totalSeconds / 60) % 60
-    val targetSecondIndex = bufferCount + totalSeconds % 60
+    val targetHourIndex = totalSeconds / 3600
+    val targetMinuteIndex = ( totalSeconds / 60) % 60
+    val targetSecondIndex = totalSeconds % 60
 
     // 滚筒状态，初始索引设为目标索引
     val hourState = rememberLazyListState(initialFirstVisibleItemIndex = targetHourIndex)
@@ -174,7 +179,9 @@ fun TimePickerDialog(
         Surface(
             shape = RoundedCornerShape(16.dp),
             color = Color.White,
-            modifier = Modifier.size(240.dp).clip(RoundedCornerShape(10.dp))
+            modifier = Modifier
+                .size(240.dp)
+                .clip(RoundedCornerShape(10.dp))
         ) {
             Row(
                 modifier = Modifier
@@ -282,8 +289,18 @@ fun WheelPickerColumn(
         }
     }
 }
+fun get_Photo_Points(totalSeconds: Int,Segments: Int): MutableList<Int>{
+    var ResTime = MutableList<Int>(1){ 0 }
+    var SegmentLen=totalSeconds/Segments
+    for (i in 1 until Segments) {
+        ResTime.add(SegmentLen*i+ Random.nextInt((-SegmentLen*0.4).toInt(),(SegmentLen*0.4).toInt()))
+    }
+    return ResTime
+}
 @Composable
-fun ClockGUI(modifier: Modifier = Modifier) {
+fun ClockGUI(modifier: Modifier = Modifier,
+             Segments:Int = 2,
+             onTriggerPhoto: () -> Unit = {},) {
     var scheduledWorkTimeInSeconds: Int by remember { mutableStateOf(0) }
     var scheduledRelaxTimeInSeconds: Int by remember { mutableStateOf(0) }
     var currentWorkTimeInSeconds: Int by remember { mutableStateOf(0) }
@@ -293,18 +310,45 @@ fun ClockGUI(modifier: Modifier = Modifier) {
     var playButtonHeight by remember { mutableStateOf(0) }
     var timerStatus: TimerStatus by remember { mutableStateOf(TimerStatus.PAUSED) }
     var lastRunStatus: TimerStatus by remember { mutableStateOf(TimerStatus.WORKING) }
+    val context = LocalContext.current
+    var photoTimeList = remember { MutableList<Int>(Segments){0} }
+
+    val audioAttributes = remember{ AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_MEDIA)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+        .build()
+    }
+
+    var soundPool = remember{ SoundPool.Builder()
+        .setMaxStreams(3) // 最多同时播放3个音效
+        .setAudioAttributes(audioAttributes)
+        .build()
+    }
+
+    val WorkEndSoundId = remember{ soundPool?.load(context, R.raw.work_end_sound_effect, 1) ?: 0 }
+    val WorkStartSoundId = remember{ soundPool?.load(context, R.raw.bell_sound, 1) ?: 0 }
+    val WorkFlowEndSoundId= remember{ soundPool?.load(context, R.raw.workflow_end_sound, 1) ?: 0 }
+    val soundsLoaded = remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) {
         val handler = Handler(Looper.getMainLooper())
+
+        soundPool.setOnLoadCompleteListener { _, _, status ->
+            soundsLoaded.value = (status == 0)
+        }//音效库初始化
+
         val countDownRunnable = object : Runnable {
             override fun run() {
                 when (timerStatus) {
                     TimerStatus.WORKING -> {
                         if (currentWorkTimeInSeconds > 0) {
                             currentWorkTimeInSeconds--
+                            if(currentWorkTimeInSeconds in photoTimeList){
+                            }
                         } else {
                             timerStatus = TimerStatus.RELAXING
                             currentWorkTimeInSeconds = scheduledWorkTimeInSeconds
+                            soundPool.play(WorkEndSoundId,1f,1f,0,0,1f)
                         }
                     }
 
@@ -315,10 +359,13 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                             if (round > 0) {
                                 round--
                                 timerStatus = TimerStatus.WORKING
+                                soundPool.play(WorkStartSoundId,1f,1f,0,0,1f)
                             } else {
                                 timerStatus = TimerStatus.PAUSED
+                                soundPool.play(WorkFlowEndSoundId,1f,1f,0,0,1f)
                             }
                             currentRelaxTimeInSeconds = scheduledRelaxTimeInSeconds
+
                         }
                     }
 
@@ -328,12 +375,13 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                 }
                 handler.postDelayed(this, 1000)
             }
-        }
+        }//倒计时逻辑初始化
 
         handler.post(countDownRunnable)
 
         onDispose {
-            handler.removeCallbacksAndMessages(null)
+            handler.removeCallbacksAndMessages(null)//释放handler内存
+            soundPool.release()//释放音效内存
         }
     }
 
@@ -447,7 +495,9 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                             fontSize = 30.sp,
                             color = workTimeColor,
                             modifier = Modifier.clickable{
-                                showWorkTimeSelector=true
+                                if(timerStatus==TimerStatus.PAUSED){
+                                    showWorkTimeSelector=true
+                                }
                             }
                         )
                         Row(
@@ -498,6 +548,7 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                             TimePickerDialog(modifier = Modifier, totalSeconds = scheduledWorkTimeInSeconds) {
                                 res->
                                 scheduledWorkTimeInSeconds=res
+                                currentWorkTimeInSeconds=scheduledWorkTimeInSeconds
                                 showWorkTimeSelector=false
                             }
                         }
@@ -515,11 +566,17 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                         val relaxM = (currentRelaxTimeInSeconds % 3600) / 60
                         val relaxS = currentRelaxTimeInSeconds % 60
                         val relaxTimeColor = if (timerStatus == TimerStatus.RELAXING) Color(0xFF83D086) else Color.White
+                        var showRelaxTimeSelector : Boolean by remember { mutableStateOf(false) }
                         Text(
                             text = "%02d:%02d:%02d".format(relaxH, relaxM, relaxS),
                             fontFamily = FontFamily(Font(R.font.digital7_mono)),
                             fontSize = 30.sp,
-                            color = relaxTimeColor
+                            color = relaxTimeColor,
+                            modifier = Modifier.clickable{
+                                if(timerStatus == TimerStatus.PAUSED){
+                                    showRelaxTimeSelector=true
+                                }
+                            }
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(0.5f),
@@ -564,6 +621,14 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                                     tint = Color.White,
                                 )
                             }
+                            if(showRelaxTimeSelector==true){
+                                TimePickerDialog(modifier = Modifier, totalSeconds = scheduledRelaxTimeInSeconds) {
+                                        res->
+                                    scheduledRelaxTimeInSeconds=res
+                                    currentRelaxTimeInSeconds=scheduledRelaxTimeInSeconds
+                                    showRelaxTimeSelector=false
+                                }
+                            }
                         }
                     }
                 }
@@ -576,6 +641,9 @@ fun ClockGUI(modifier: Modifier = Modifier) {
                     onClick = {
                         if (timerStatus == TimerStatus.PAUSED) {
                             timerStatus = lastRunStatus
+                            if(timerStatus == TimerStatus.WORKING){
+                                soundPool.play(WorkStartSoundId, 1f, 1f, 0, 0, 1f)
+                            }
                         } else {
                             lastRunStatus = timerStatus
                             timerStatus = TimerStatus.PAUSED
@@ -606,7 +674,7 @@ fun ClockGUI(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun RequestCameraPermission(modifier: Modifier = Modifier) {
+fun RequestCameraPermission(modifier: Modifier = Modifier,shouldTakePhoto: Boolean = false) {
     val context = LocalContext.current
     var hasPermission by remember {
         mutableStateOf(
@@ -631,7 +699,7 @@ fun RequestCameraPermission(modifier: Modifier = Modifier) {
     }
 
     if (hasPermission) {
-        StartCamera(modifier = modifier)
+        StartCamera(modifier = modifier,shouldTakePhoto=shouldTakePhoto)
     } else {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("需要相机权限才能拍照")
@@ -643,7 +711,7 @@ fun RequestCameraPermission(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun StartCamera(modifier: Modifier) {
+fun StartCamera(modifier: Modifier,shouldTakePhoto: Boolean = false) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
@@ -678,7 +746,11 @@ fun StartCamera(modifier: Modifier) {
         ) {
             var imgToShow: Bitmap? by remember { mutableStateOf(null) }
             var isAtWork: Boolean by remember { mutableStateOf(false) }
-
+            if (shouldTakePhoto) {
+                captureUserPhoto(imageCapture, context) { bitmap ->
+                    imgToShow = bitmap
+                }
+            }
             if (imgToShow != null) {
                 ShowReminderWithPhoto(
                     image = imgToShow!!,
