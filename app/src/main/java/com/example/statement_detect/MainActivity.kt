@@ -1,5 +1,6 @@
 package com.example.statement_detect
 
+import java.util.concurrent.Executors
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -60,7 +61,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -88,7 +91,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.statement_detect.ui.theme.Statement_DetectTheme
 import kotlinx.coroutines.launch
+import java.util.ArrayDeque
+import java.util.Calendar
 import kotlin.random.Random
+import kotlin.random.nextInt
 
 
 class MainActivity : ComponentActivity() {
@@ -97,12 +103,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             Statement_DetectTheme {
-                var NeedPhoto by remember { mutableStateOf(false) }
+                var needPhoto by remember { mutableStateOf(false) }
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    ClockGUI(modifier = Modifier.padding(innerPadding)){
-                        NeedPhoto=true
+                    ClockGUI(modifier = Modifier.padding(innerPadding),Segments = 5){
+                        needPhoto=true
                     }
-                    RequestCameraPermission(modifier = Modifier.padding(innerPadding),shouldTakePhoto = NeedPhoto)
+                    RequestCameraPermission(
+                        modifier = Modifier.padding(innerPadding),
+                        shouldTakePhoto = needPhoto,
+                        onCaptureTriggered = { needPhoto = false }
+                    )
                 }
             }
         }
@@ -289,11 +299,19 @@ fun WheelPickerColumn(
         }
     }
 }
-fun get_Photo_Points(totalSeconds: Int,Segments: Int): MutableList<Int>{
+
+fun GetPhotoPoints(totalSeconds: Int,Segments: Int): MutableList<Int>{
     var ResTime = MutableList<Int>(1){ 0 }
     var SegmentLen=totalSeconds/Segments
     for (i in 1 until Segments) {
-        ResTime.add(SegmentLen*i+ Random.nextInt((-SegmentLen*0.4).toInt(),(SegmentLen*0.4).toInt()))
+        var fix:Int
+        if((-SegmentLen*0.4).toInt()>=(SegmentLen*0.4).toInt()){
+            fix = 0
+        }
+        else{
+            fix = Random.nextInt((-SegmentLen*0.4).toInt(),(SegmentLen*0.4).toInt())
+        }
+        ResTime.add( SegmentLen * i + fix )
     }
     return ResTime
 }
@@ -311,7 +329,7 @@ fun ClockGUI(modifier: Modifier = Modifier,
     var timerStatus: TimerStatus by remember { mutableStateOf(TimerStatus.PAUSED) }
     var lastRunStatus: TimerStatus by remember { mutableStateOf(TimerStatus.WORKING) }
     val context = LocalContext.current
-    var photoTimeList = remember { MutableList<Int>(Segments){0} }
+    var photoTimeList by remember { mutableStateOf(List(Segments){0})}
 
     val audioAttributes = remember{ AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -344,6 +362,7 @@ fun ClockGUI(modifier: Modifier = Modifier,
                         if (currentWorkTimeInSeconds > 0) {
                             currentWorkTimeInSeconds--
                             if(currentWorkTimeInSeconds in photoTimeList){
+                                onTriggerPhoto()
                             }
                         } else {
                             timerStatus = TimerStatus.RELAXING
@@ -359,9 +378,12 @@ fun ClockGUI(modifier: Modifier = Modifier,
                             if (round > 0) {
                                 round--
                                 timerStatus = TimerStatus.WORKING
+                                photoTimeList = GetPhotoPoints(scheduledWorkTimeInSeconds,Segments)
                                 soundPool.play(WorkStartSoundId,1f,1f,0,0,1f)
                             } else {
                                 timerStatus = TimerStatus.PAUSED
+                                lastRunStatus = TimerStatus.WORKING
+                                photoTimeList = GetPhotoPoints(scheduledWorkTimeInSeconds,Segments)
                                 soundPool.play(WorkFlowEndSoundId,1f,1f,0,0,1f)
                             }
                             currentRelaxTimeInSeconds = scheduledRelaxTimeInSeconds
@@ -508,6 +530,7 @@ fun ClockGUI(modifier: Modifier = Modifier,
                                 onClick = {
                                     if (timerStatus == TimerStatus.PAUSED) {
                                         scheduledWorkTimeInSeconds = handleTime(scheduledWorkTimeInSeconds, isAdd = true, isMinus = false)
+                                        photoTimeList = GetPhotoPoints(scheduledWorkTimeInSeconds,Segments)
                                         currentWorkTimeInSeconds = scheduledWorkTimeInSeconds
                                     }
                                 },
@@ -528,6 +551,7 @@ fun ClockGUI(modifier: Modifier = Modifier,
                                 onClick = {
                                     if (timerStatus == TimerStatus.PAUSED) {
                                         scheduledWorkTimeInSeconds = handleTime(scheduledWorkTimeInSeconds, isAdd = false, isMinus = true)
+                                        photoTimeList = GetPhotoPoints(scheduledWorkTimeInSeconds,Segments)
                                         currentWorkTimeInSeconds = scheduledWorkTimeInSeconds
                                     }
                                 },
@@ -548,6 +572,7 @@ fun ClockGUI(modifier: Modifier = Modifier,
                             TimePickerDialog(modifier = Modifier, totalSeconds = scheduledWorkTimeInSeconds) {
                                 res->
                                 scheduledWorkTimeInSeconds=res
+                                photoTimeList = GetPhotoPoints(scheduledWorkTimeInSeconds,Segments)
                                 currentWorkTimeInSeconds=scheduledWorkTimeInSeconds
                                 showWorkTimeSelector=false
                             }
@@ -673,8 +698,13 @@ fun ClockGUI(modifier: Modifier = Modifier,
     }
 }
 
+
 @Composable
-fun RequestCameraPermission(modifier: Modifier = Modifier,shouldTakePhoto: Boolean = false) {
+fun RequestCameraPermission(
+    modifier: Modifier = Modifier,
+    shouldTakePhoto: Boolean = false,
+    onCaptureTriggered: () -> Unit = {}
+) {
     val context = LocalContext.current
     var hasPermission by remember {
         mutableStateOf(
@@ -699,7 +729,11 @@ fun RequestCameraPermission(modifier: Modifier = Modifier,shouldTakePhoto: Boole
     }
 
     if (hasPermission) {
-        StartCamera(modifier = modifier,shouldTakePhoto=shouldTakePhoto)
+        StartCamera(
+            modifier = modifier,
+            shouldTakePhoto = shouldTakePhoto,
+            onCaptureTriggered = onCaptureTriggered
+        )
     } else {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("需要相机权限才能拍照")
@@ -711,18 +745,25 @@ fun RequestCameraPermission(modifier: Modifier = Modifier,shouldTakePhoto: Boole
 }
 
 @Composable
-fun StartCamera(modifier: Modifier,shouldTakePhoto: Boolean = false) {
+fun StartCamera(
+    modifier: Modifier,
+    shouldTakePhoto: Boolean = false,
+    onCaptureTriggered: () -> Unit = {}
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var imageCapture: ImageCapture? by remember { mutableStateOf(null) }
     val preview = remember { androidx.camera.core.Preview.Builder().build() }
 
+    // 使用 mutableStateListOf 确保 UI 能监听到图片添加
+    val imgToShow = remember { mutableStateListOf<Bitmap>() }
+
+    // 相机初始化
     LaunchedEffect(Unit) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         val cameraProvider = cameraProviderFuture.get()
         val imageCaptureUseCase = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .setFlashMode(ImageCapture.FLASH_MODE_OFF)
             .build()
         imageCapture = imageCaptureUseCase
         val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
@@ -738,26 +779,35 @@ fun StartCamera(modifier: Modifier,shouldTakePhoto: Boolean = false) {
             Log.e("CameraCapture", "摄像头绑定失败", exc)
         }
     }
+
+    // 监听拍照指令 (修复了之前直接写在函数体里的隐患)
+    LaunchedEffect(shouldTakePhoto) {
+        if (shouldTakePhoto && imageCapture != null) {
+            // 1. 立即通知外部重置状态，防止重复触发
+            onCaptureTriggered()
+
+            // 2. 调用修改后的安全拍照函数
+            captureUserPhoto(imageCapture, context) { bitmap ->
+                imgToShow.add(bitmap) // 将结果添加到列表
+            }
+        }
+    }
+
     Box {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            var imgToShow: Bitmap? by remember { mutableStateOf(null) }
-            var isAtWork: Boolean by remember { mutableStateOf(false) }
-            if (shouldTakePhoto) {
-                captureUserPhoto(imageCapture, context) { bitmap ->
-                    imgToShow = bitmap
-                }
-            }
-            if (imgToShow != null) {
+            // 如果列表里有照片，就显示弹窗
+            if (imgToShow.isNotEmpty()) {
                 ShowReminderWithPhoto(
-                    image = imgToShow!!,
+                    image = imgToShow.first(),
                 ) {
-                        res ->
-                    isAtWork = res
-                    imgToShow = null
+                    // 无论点哪个按钮，都移除当前照片
+                    if (imgToShow.isNotEmpty()) {
+                        imgToShow.removeAt(0)
+                    }
                 }
             }
         }
@@ -768,7 +818,7 @@ fun StartCamera(modifier: Modifier,shouldTakePhoto: Boolean = false) {
                     scaleType = PreviewView.ScaleType.FILL_CENTER
                     background = null
                     implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                    preview.setSurfaceProvider(surfaceProvider)
+                    preview.setSurfaceProvider(this.surfaceProvider)
                 }
             },
             modifier = Modifier
@@ -779,24 +829,62 @@ fun StartCamera(modifier: Modifier,shouldTakePhoto: Boolean = false) {
     }
 }
 
+// 辅助函数：将图片按比例压缩到指定最大尺寸（解决真机内存崩溃的关键）
+fun scaleBitmap(bitmap: Bitmap, maxDimension: Int): Bitmap {
+    val originalWidth = bitmap.width
+    val originalHeight = bitmap.height
+    var newWidth = maxDimension
+    var newHeight = maxDimension
+
+    if (originalWidth > originalHeight) {
+        newHeight = (newWidth * originalHeight / originalWidth)
+    } else {
+        newWidth = (newHeight * originalWidth / originalHeight)
+    }
+    return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+}
+
+
+// 定义一个单线程池，避免在主线程处理大图
+val cameraExecutor = Executors.newSingleThreadExecutor()
+
 fun captureUserPhoto(
     imageCapture: ImageCapture?,
-    context: Context,
+    context: Context, // 这里 context 只要传进来就行，主要用于后续回调切换线程
     onPhotoCaptured: (Bitmap) -> Unit
 ) {
     val imageCaptureInstance = imageCapture ?: return
+
+    // 1. 使用 cameraExecutor 在后台线程拍照，而不是 MainExecutor
     imageCaptureInstance.takePicture(
-        ContextCompat.getMainExecutor(context),
+        cameraExecutor,
         object : ImageCapture.OnImageCapturedCallback() {
             override fun onError(exception: ImageCaptureException) {
                 Log.e("Camera", "拍照失败: ${exception.message}", exception)
             }
 
             override fun onCaptureSuccess(image: ImageProxy) {
-                val bitmap = image.toBitmap()
-                Log.d("Camera", "成功拍摄用户照片: ${bitmap.width}x${bitmap.height}")
-                onPhotoCaptured(bitmap)
-                image.close()
+                try {
+                    // 2. 在后台线程将 ImageProxy 转为 Bitmap
+                    // 注意：image.toBitmap() 可能会自动处理旋转，但非常耗内存
+                    val originalBitmap = image.toBitmap()
+
+                    // 3. 关键步骤：压缩图片！
+                    // 将图片限制在 640px 左右，内存占用会从 50MB 降到 1MB 左右
+                    val scaledBitmap = scaleBitmap(originalBitmap, 640)
+
+                    Log.d("Camera", "成功拍摄并压缩: ${scaledBitmap.width}x${scaledBitmap.height}")
+
+                    // 4. 切回主线程更新 UI
+                    Handler(Looper.getMainLooper()).post {
+                        onPhotoCaptured(scaledBitmap)
+                    }
+                } catch (e: Exception) {
+                    Log.e("Camera", "图片处理出错: ${e.message}")
+                } finally {
+                    // 5. 必须关闭 image，否则下次拍照会卡死或报错
+                    image.close()
+                }
             }
         }
     )
@@ -804,6 +892,11 @@ fun captureUserPhoto(
 
 @Composable
 fun ShowReminderWithPhoto(image: Bitmap, onDismiss: (Boolean) -> Unit) {
+    val timestamp=remember { System.currentTimeMillis() }
+    val calendar = Calendar.getInstance().apply { timeInMillis = timestamp }
+    val hour = calendar.get(Calendar.HOUR_OF_DAY)  // 24小时制
+    val minute = calendar.get(Calendar.MINUTE)
+    val second = calendar.get(Calendar.SECOND)
     Dialog(
         onDismissRequest = { onDismiss(false) },
         properties = DialogProperties(
