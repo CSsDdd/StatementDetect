@@ -48,6 +48,8 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.compose.foundation)
+    implementation(libs.androidx.media3.datasource)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -55,6 +57,7 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     val camerax_version = "1.3.1" // 或者 "1.4.0-alpha04" 等最新版本
     // 核心库 (必须)
     implementation("androidx.camera:camera-core:${camerax_version}")
