@@ -13,6 +13,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.example.statement_detect.camera.RequestCameraPermission
+import com.example.statement_detect.ui.AppDrawer
+import com.example.statement_detect.ui.AppScaffold
 import com.example.statement_detect.ui.ClockGUI
 import com.example.statement_detect.ui.theme.Statement_DetectTheme
 
@@ -22,17 +24,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             Statement_DetectTheme {
-                var needPhoto by remember { mutableStateOf(false) }
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    ClockGUI(modifier = Modifier.padding(innerPadding)) {
-                        needPhoto = true
-                    }
-                    RequestCameraPermission(
-                        modifier = Modifier.padding(innerPadding),
-                        shouldTakePhoto = needPhoto,
-                        onCaptureTriggered = { needPhoto = false }
-                    )
-                }
+                AppScaffold()
             }
         }
     }

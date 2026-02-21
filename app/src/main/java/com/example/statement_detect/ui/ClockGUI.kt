@@ -46,6 +46,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.statement_detect.R
 import com.example.statement_detect.timer.TimerStatus
 import com.example.statement_detect.timer.TimerViewModel
+import com.example.statement_detect.timer.TimerViewModelFactory
+import androidx.compose.runtime.collectAsState
 
 @Composable
 fun ClockGUI(
@@ -53,7 +55,9 @@ fun ClockGUI(
     onTriggerPhoto: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val vm: TimerViewModel = viewModel()
+    val vm: TimerViewModel = viewModel(
+        factory = TimerViewModelFactory(context = context)
+    )
 
     // 初始化音效和计时器（只执行一次）
     DisposableEffect(Unit) {
@@ -127,7 +131,7 @@ private fun RoundsControl(vm: TimerViewModel, onMeasured: (Int) -> Unit) {
         Text(text = "Rounds", color = Color.White)
         val roundColor = if (vm.timerStatus != TimerStatus.PAUSED) Color(0xFF83D086) else Color.White
         Text(
-            text = "%01d".format(vm.round),
+            text = "%01d".format(vm.currentRound),
             fontFamily = FontFamily(Font(R.font.digital7_mono)),
             fontSize = 30.sp,
             color = roundColor
@@ -164,7 +168,7 @@ private fun WorkTimeControl(vm: TimerViewModel, modifier: Modifier) {
             SmallIconButton(Icons.Default.KeyboardArrowDown, "Work Time Down") { vm.decrementWorkTime() }
         }
         if (showSelector) {
-            TimePickerDialog(totalSeconds = vm.scheduledWorkTimeInSeconds) { res ->
+            TimePickerDialog(totalSeconds = vm.scheduledWorkTimeInSeconds.collectAsState().value) { res ->
                 vm.setWorkTime(res)
                 showSelector = false
             }
@@ -197,7 +201,7 @@ private fun RelaxTimeControl(vm: TimerViewModel, modifier: Modifier) {
             SmallIconButton(Icons.Default.KeyboardArrowDown, "Relax Time Down") { vm.decrementRelaxTime() }
         }
         if (showSelector) {
-            TimePickerDialog(totalSeconds = vm.scheduledRelaxTimeInSeconds) { res ->
+            TimePickerDialog(totalSeconds = vm.scheduledRelaxTimeInSeconds.collectAsState().value) { res ->
                 vm.setRelaxTime(res)
                 showSelector = false
             }

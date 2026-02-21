@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    id("com.google.devtools.ksp") version "2.3.4" apply true
 }
 
 android {
@@ -49,6 +50,7 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.media3.datasource)
+    implementation(libs.androidx.material3)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
@@ -70,4 +72,36 @@ dependencies {
 
     // 可选：如果你用了 CameraView (你的代码好像没用，但加上防备万一)
     implementation("androidx.camera:camera-view:${camerax_version}")
+    implementation("androidx.compose.material:material-icons-core")
+    implementation("androidx.compose.material:material-icons-extended")
+
+    dependencies {
+        val room_version = "2.8.4"
+
+        implementation("androidx.room:room-runtime:$room_version")
+
+        // If this project uses any Kotlin source, use Kotlin Symbol Processing (KSP)
+        // See Add the KSP plugin to your project
+        ksp("androidx.room:room-compiler:$room_version")
+
+        // optional - Kotlin Extensions and Coroutines support for Room
+        implementation("androidx.room:room-ktx:$room_version")
+
+        // optional - RxJava2 support for Room
+        implementation("androidx.room:room-rxjava2:$room_version")
+
+        // optional - RxJava3 support for Room
+        implementation("androidx.room:room-rxjava3:$room_version")
+
+        // optional - Guava support for Room, including Optional and ListenableFuture
+        implementation("androidx.room:room-guava:$room_version")
+
+        // optional - Test helpers
+        testImplementation("androidx.room:room-testing:$room_version")
+
+        // optional - Paging 3 Integration
+        implementation("androidx.room:room-paging:$room_version")
+
+        implementation("androidx.datastore:datastore-preferences:1.0.0")
+    }
 }

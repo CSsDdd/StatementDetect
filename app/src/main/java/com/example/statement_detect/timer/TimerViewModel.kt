@@ -9,34 +9,56 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.statement_detect.R
+import com.example.statement_detect.data.SettingsRepository
 import com.example.statement_detect.timer.TimerStatus
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
-class TimerViewModel : ViewModel() {
+class TimerViewModel(private val repo: SettingsRepository) : ViewModel() {
 
     // --- 对外暴露的状态 ---
     var timerStatus by mutableStateOf(TimerStatus.PAUSED)
         private set
     var lastRunStatus by mutableStateOf(TimerStatus.WORKING)
         private set
-
-    var scheduledWorkTimeInSeconds by mutableStateOf(0)
+    var scheduledWorkTimeInSeconds = repo.timerDuration.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(),
+        1500
+    )
         private set
-    var scheduledRelaxTimeInSeconds by mutableStateOf(0)
+    var scheduledRelaxTimeInSeconds = repo.relaxDuration.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(),
+        300
+    )
+        private set
+    var segments = repo.SegmentCount.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(),
+        2
+    )
+        private set
+    var scheduledRound  = repo.roundCount.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(),
+        1
+    )
         private set
     var currentWorkTimeInSeconds by mutableStateOf(0)
         private set
     var currentRelaxTimeInSeconds by mutableStateOf(0)
         private set
-    var round by mutableStateOf(0)
+    var currentRound by mutableStateOf(0)
         private set
     var photoTimeList by mutableStateOf<List<Int>>(emptyList())
         private set
-
     // 拍照触发回调，由外部设置
     var onTriggerPhoto: (() -> Unit)? = null
-
     // --- 音效 ---
     private var soundPool: SoundPool? = null
     private var workEndSoundId = 0
@@ -45,8 +67,26 @@ class TimerViewModel : ViewModel() {
 
     // --- 计时器 Handler ---
     private val handler = Handler(Looper.getMainLooper())
-    private val segments = 5
 
+    init {
+        viewModelScope.launch {
+            scheduledRound.collect { currentRound = it }
+        }
+        viewModelScope.launch {
+            scheduledWorkTimeInSeconds.collect {
+                currentWorkTimeInSeconds = it
+                photoTimeList = getPhotoPoints(it, segments.value)
+            }
+        }
+        viewModelScope.launch {
+            scheduledRelaxTimeInSeconds.collect { currentRelaxTimeInSeconds = it }
+        }
+        viewModelScope.launch {
+            segments.collect {
+                photoTimeList = getPhotoPoints(scheduledWorkTimeInSeconds.value, it)
+            }
+        }
+    }
     private val countDownRunnable = object : Runnable {
         override fun run() {
             when (timerStatus) {
@@ -57,27 +97,31 @@ class TimerViewModel : ViewModel() {
                             onTriggerPhoto?.invoke()
                         }
                     } else {
-                        timerStatus = TimerStatus.RELAXING
-                        currentWorkTimeInSeconds = scheduledWorkTimeInSeconds
-                        soundPool?.play(workEndSoundId, 1f, 1f, 0, 0, 1f)
+                        if(currentRound > 0){
+                            timerStatus = TimerStatus.RELAXING
+                            currentWorkTimeInSeconds = scheduledWorkTimeInSeconds.value
+                            soundPool?.play(workEndSoundId, 1f, 1f, 0, 0, 1f)
+                        }else{
+                            timerStatus = TimerStatus.PAUSED
+                            lastRunStatus = TimerStatus.WORKING
+                            currentWorkTimeInSeconds = scheduledWorkTimeInSeconds.value
+                            currentRound = scheduledRound.value
+                            soundPool?.play(workFlowEndSoundId, 1f, 1f, 0, 0, 1f)
+                        }
                     }
+
                 }
                 TimerStatus.RELAXING -> {
                     if (currentRelaxTimeInSeconds > 0) {
                         currentRelaxTimeInSeconds--
                     } else {
-                        if (round > 0) {
-                            round--
+                        if (currentRound > 0) {
+                            currentRound--
                             timerStatus = TimerStatus.WORKING
-                            photoTimeList = getPhotoPoints(scheduledWorkTimeInSeconds, segments)
+                            photoTimeList = getPhotoPoints(scheduledWorkTimeInSeconds.value, segments.value)
                             soundPool?.play(workStartSoundId, 1f, 1f, 0, 0, 1f)
-                        } else {
-                            timerStatus = TimerStatus.PAUSED
-                            lastRunStatus = TimerStatus.WORKING
-                            photoTimeList = getPhotoPoints(scheduledWorkTimeInSeconds, segments)
-                            soundPool?.play(workFlowEndSoundId, 1f, 1f, 0, 0, 1f)
-                        }
-                        currentRelaxTimeInSeconds = scheduledRelaxTimeInSeconds
+                        } else {}
+                        currentRelaxTimeInSeconds = scheduledRelaxTimeInSeconds.value
                     }
                 }
                 TimerStatus.PAUSED -> { /* 不做任何事 */ }
@@ -117,55 +161,66 @@ class TimerViewModel : ViewModel() {
     }
 
     fun incrementRound() {
-        if (timerStatus == TimerStatus.PAUSED) round = (round + 1) % 10
+        if (timerStatus == TimerStatus.PAUSED){
+            viewModelScope.launch {
+                repo.saveRoundCount((scheduledRound.value + 1)%10)
+            }
+        }
     }
 
     fun decrementRound() {
-        if (timerStatus == TimerStatus.PAUSED) round = (round + 9) % 10
+        if (timerStatus == TimerStatus.PAUSED){
+            viewModelScope.launch {
+                repo.saveRoundCount((scheduledRound.value + 9)%10)
+            }
+        }
     }
 
     fun incrementWorkTime() {
         if (timerStatus == TimerStatus.PAUSED) {
-            scheduledWorkTimeInSeconds = handleTime(scheduledWorkTimeInSeconds, isAdd = true, isMinus = false)
-            currentWorkTimeInSeconds = scheduledWorkTimeInSeconds
-            photoTimeList = getPhotoPoints(scheduledWorkTimeInSeconds, segments)
+            viewModelScope.launch {
+                repo.saveWorkDuration(handleTime(scheduledWorkTimeInSeconds.value, isAdd = true, isMinus = false))
+            }
         }
     }
 
     fun decrementWorkTime() {
         if (timerStatus == TimerStatus.PAUSED) {
-            scheduledWorkTimeInSeconds = handleTime(scheduledWorkTimeInSeconds, isAdd = false, isMinus = true)
-            currentWorkTimeInSeconds = scheduledWorkTimeInSeconds
-            photoTimeList = getPhotoPoints(scheduledWorkTimeInSeconds, segments)
+            viewModelScope.launch {
+                repo.saveWorkDuration(handleTime(scheduledWorkTimeInSeconds.value, isAdd = false, isMinus = true))
+            }
         }
     }
 
     fun setWorkTime(totalSeconds: Int) {
         if (timerStatus == TimerStatus.PAUSED) {
-            scheduledWorkTimeInSeconds = totalSeconds
-            currentWorkTimeInSeconds = totalSeconds
-            photoTimeList = getPhotoPoints(totalSeconds, segments)
+            viewModelScope.launch {
+                repo.saveWorkDuration(totalSeconds)
+            }
         }
     }
 
     fun incrementRelaxTime() {
         if (timerStatus == TimerStatus.PAUSED) {
-            scheduledRelaxTimeInSeconds = handleTime(scheduledRelaxTimeInSeconds, isAdd = true, isMinus = false)
-            currentRelaxTimeInSeconds = scheduledRelaxTimeInSeconds
+            viewModelScope.launch {
+                repo.saveRelaxDuration(handleTime(scheduledRelaxTimeInSeconds.value, isAdd = true, isMinus = false))
+            }
         }
     }
 
     fun decrementRelaxTime() {
         if (timerStatus == TimerStatus.PAUSED) {
-            scheduledRelaxTimeInSeconds = handleTime(scheduledRelaxTimeInSeconds, isAdd = false, isMinus = true)
-            currentRelaxTimeInSeconds = scheduledRelaxTimeInSeconds
+            viewModelScope.launch {
+                repo.saveRelaxDuration(handleTime(scheduledRelaxTimeInSeconds.value, isAdd = false, isMinus = true))
+            }
         }
     }
 
     fun setRelaxTime(totalSeconds: Int) {
         if (timerStatus == TimerStatus.PAUSED) {
-            scheduledRelaxTimeInSeconds = totalSeconds
-            currentRelaxTimeInSeconds = totalSeconds
+            viewModelScope.launch {
+                repo.saveRelaxDuration(totalSeconds)
+            }
         }
     }
 
@@ -175,5 +230,12 @@ class TimerViewModel : ViewModel() {
         handler.removeCallbacksAndMessages(null)
         soundPool?.release()
         soundPool = null
+    }
+}
+
+class TimerViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        val repo = SettingsRepository(context.applicationContext)
+        return TimerViewModel(repo) as T
     }
 }

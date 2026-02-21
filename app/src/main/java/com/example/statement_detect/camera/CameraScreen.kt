@@ -127,10 +127,10 @@ fun StartCamera(
                     preview.setSurfaceProvider(this.surfaceProvider)
                 }
             },
-            modifier = Modifier
+            modifier = modifier
                 .align(Alignment.TopEnd)
                 .padding(10.dp)
-                .requiredSize(180.dp, 240.dp)
+                .requiredSize(150.dp, 200.dp)
         )
     }
 }
