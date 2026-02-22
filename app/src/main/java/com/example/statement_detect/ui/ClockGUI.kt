@@ -51,13 +51,11 @@ import androidx.compose.runtime.collectAsState
 
 @Composable
 fun ClockGUI(
+    vm: TimerViewModel,
     modifier: Modifier = Modifier,
     onTriggerPhoto: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val vm: TimerViewModel = viewModel(
-        factory = TimerViewModelFactory(context = context)
-    )
 
     // 初始化音效和计时器（只执行一次）
     DisposableEffect(Unit) {

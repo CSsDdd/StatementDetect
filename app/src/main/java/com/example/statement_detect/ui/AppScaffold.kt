@@ -38,12 +38,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import com.example.statement_detect.timer.TimerViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppScaffold(){
+fun AppScaffold(vm: TimerViewModel , navController: NavController){
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var needPhoto by remember { mutableStateOf(false) }
@@ -76,7 +78,10 @@ fun AppScaffold(){
                 )
             },
         ) {innerPadding ->
-            ClockGUI(modifier = Modifier.padding(innerPadding)) {
+            ClockGUI(
+                modifier = Modifier.padding(innerPadding),
+                vm = vm
+            ) {
                 needPhoto = true
             }
             RequestCameraPermission(
