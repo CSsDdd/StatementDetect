@@ -19,10 +19,15 @@ val DigitalFontFamily = FontFamily(
 val DigitalMono = FontFamily(
     Font(R.font.digital7_mono)  // 清爽！不需要反引号
 )
+
+val VarelaroundFontFamily = FontFamily(
+    Font(R.font.varelaround_regular, FontWeight.Normal, FontStyle.Normal),
+)
+
 // Set of Material typography styles to start with
 val Typography = Typography(
     bodyLarge = TextStyle(
-        fontFamily = FontFamily.Default,
+        fontFamily = VarelaroundFontFamily,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
         lineHeight = 24.sp,
@@ -33,6 +38,13 @@ val Typography = Typography(
         fontWeight = FontWeight.Normal,
         fontSize = 57.sp,
         lineHeight = 64.sp,
+        letterSpacing = 0.sp
+    ),
+    bodyMedium = TextStyle(
+        fontFamily = VarelaroundFontFamily,
+        fontWeight = FontWeight.Normal,
+        fontSize = 12.sp,
+        lineHeight = 18.sp,
         letterSpacing = 0.sp
     ),
     /* Other default text styles to override

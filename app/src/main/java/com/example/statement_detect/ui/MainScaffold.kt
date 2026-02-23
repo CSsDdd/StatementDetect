@@ -31,9 +31,11 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.statement_detect.timer.TimerViewModel
+import com.example.statement_detect.ui.theme.VarelaroundFontFamily
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -63,7 +65,7 @@ fun MainScaffold(vm: TimerViewModel , navController: NavController){
             modifier = Modifier,
             topBar = {
                 TopAppBar(
-                    title = { Text("WORK") },
+                    title = { Text("WORK", fontFamily = VarelaroundFontFamily, fontWeight = FontWeight.Bold) },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Default.Menu, contentDescription = "打开菜单")

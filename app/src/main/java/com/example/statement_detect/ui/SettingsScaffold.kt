@@ -18,9 +18,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.example.statement_detect.timer.TimerViewModel
+import com.example.statement_detect.ui.theme.VarelaroundFontFamily
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,7 +45,7 @@ fun SettingsScaffold(vm: TimerViewModel,navController: NavController){
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("SETTINGS") },
+                    title = { Text("SETTINGS", fontFamily = VarelaroundFontFamily, fontWeight = FontWeight.Bold) },
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Default.Menu, contentDescription = "打开菜单")
