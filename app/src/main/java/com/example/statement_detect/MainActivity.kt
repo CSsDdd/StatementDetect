@@ -19,7 +19,7 @@ import com.example.statement_detect.timer.TimerViewModel
 import com.example.statement_detect.timer.TimerViewModelFactory
 import com.example.statement_detect.ui.AppDrawer
 import com.example.statement_detect.ui.AppNavigation
-import com.example.statement_detect.ui.AppScaffold
+import com.example.statement_detect.ui.MainScaffold
 import com.example.statement_detect.ui.ClockGUI
 import com.example.statement_detect.ui.theme.Statement_DetectTheme
 import com.example.statement_detect.ui.AppNavigation

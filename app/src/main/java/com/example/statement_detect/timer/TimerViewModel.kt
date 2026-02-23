@@ -8,6 +8,7 @@ import android.os.Looper
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.PathSegment
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -18,7 +19,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class TimerViewModel(private val repo: SettingsRepository) : ViewModel() {
+class TimerViewModel(val repo: SettingsRepository) : ViewModel() {
 
     // --- 对外暴露的状态 ---
     var timerStatus by mutableStateOf(TimerStatus.PAUSED)
@@ -220,6 +221,14 @@ class TimerViewModel(private val repo: SettingsRepository) : ViewModel() {
         if (timerStatus == TimerStatus.PAUSED) {
             viewModelScope.launch {
                 repo.saveRelaxDuration(totalSeconds)
+            }
+        }
+    }
+
+    fun setSegments(Segments: Int) {
+        if (timerStatus == TimerStatus.PAUSED) {
+            viewModelScope.launch {
+                repo.saveSegmentCount(Segments)
             }
         }
     }
