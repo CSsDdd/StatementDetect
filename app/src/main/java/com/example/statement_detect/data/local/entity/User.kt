@@ -17,7 +17,4 @@ data class User(
 
     @ColumnInfo(name = "email")
     val email: String,
-
-    @ColumnInfo(name = "records")
-    val records: List<Record>
 )

@@ -2,12 +2,23 @@ package com.example.statement_detect.data.local.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
+import androidx.room.ForeignKey
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "records")
+@Entity(
+    tableName = "records",
+    foreignKeys = [ForeignKey(
+        entity = User::class,
+        parentColumns = ["id"],
+        childColumns = ["log_id"],
+        onDelete = ForeignKey.CASCADE
+    )])
 data class Record(
     @PrimaryKey(autoGenerate = true)
     val id: Int = 0,
+
+    @ColumnInfo(name = "log_id", index = true)
+    val logId: Int,
 
     @ColumnInfo(name = "timestamp")
     val timestamp: Long,
