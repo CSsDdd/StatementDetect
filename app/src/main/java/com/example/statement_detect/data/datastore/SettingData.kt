@@ -1,4 +1,4 @@
-package com.example.statement_detect.data
+package com.example.statement_detect.data.datastore
 
 // SettingsDataStore.kt
 import android.content.Context
